@@ -87,6 +87,54 @@ Emitter examples:
 ./run.sh emitter send --profile profiles/blind.json --command prog --allow-programming --dry-run
 ```
 
+Receiver arguments:
+
+- `receiver capture`: captures RF/timing observations and writes a capture JSON
+  file only when at least one frame is obtained. Current hardware support is
+  conservative and reports a GDO/raw timing limitation instead of faking capture.
+- `--out-file`: required output path for capture JSON.
+- `--timeout`: capture wait time in seconds. Default: `10.0`.
+- `--frames`: number of frames to collect. Default: `1`.
+- `--store-mode`: capture storage mode, either `selected` or `all`. Default:
+  `selected`.
+- `--select-index`: selected frame index when storing a single frame. Default:
+  `0`.
+- `--rx-gpio`: optional receive GPIO/GDO pin. It is only meaningful after a
+  GDO-backed capture adapter is implemented.
+- `receiver inspect <path>`: reads a capture or profile JSON file and prints a
+  compact summary without touching hardware.
+- `receiver decode <capture>`: reads capture JSON and prints decoded Somfy RTS
+  fields when the capture already contains decoded data or raw obfuscated frame
+  bytes under `raw.obfuscated_frame_hex`.
+
+Emitter arguments:
+
+- `emitter init-profile`: creates a manual Somfy RTS profile JSON.
+- `--profile`: required path to the profile JSON to write or read.
+- `--address`: required 3-byte Somfy RTS remote address as 6 hexadecimal
+  characters, for example `a1b2c3`. Values are stored lowercase.
+- `--rolling-code`: required current rolling-code integer for manual profile
+  creation. It must fit in an unsigned 16-bit value.
+- `--name`: optional human-readable profile label.
+- `emitter clone-profile`: creates a profile from the first valid decoded Somfy
+  RTS frame in a capture.
+- `--capture`: required capture JSON path used by `clone-profile`.
+- `emitter send`: encodes and optionally transmits a command using a profile.
+- `--command`: required Somfy RTS command. Allowed values are `up`, `down`,
+  `my`, and `prog`.
+- `--dry-run`: encode, print, and persist the next rolling code without
+  transmitting RF or touching the CC1101 adapter.
+- `--allow-programming`: required with `--command prog`; without it, `prog`
+  fails as invalid input.
+
+Common RF/CC1101 arguments:
+
+- `--spi-bus`: SPI bus number. Default: `0`.
+- `--spi-chip-select`: SPI chip-select number. Default: `0`.
+- `--frequency-hz`: RF carrier frequency in Hz. Default: `433420000`.
+- `--symbol-rate`: intended symbol rate setting for future hardware-backed RF
+  adapters. Default: `4800`.
+
 `prog` is guarded and fails unless `--allow-programming` is supplied.
 
 Dry-run emission encodes the frame, prints the frame fields, does not touch the
