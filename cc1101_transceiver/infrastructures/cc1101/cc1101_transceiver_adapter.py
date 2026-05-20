@@ -1,7 +1,16 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from typing import Iterator
+
+from cc1101_transceiver.applications.services.somfy_rts_codec_service import SomfyRtsCodecService
+from cc1101_transceiver.applications.services.somfy_rts_pulse_decode_service import SomfyRtsPulseDecodeService
 from cc1101_transceiver.domains.entities.capture import CaptureFrame
+from cc1101_transceiver.domains.entities.capture import DecodedFrame
 from cc1101_transceiver.domains.entities.somfy_frame import EncodedSomfyFrame
+from cc1101_transceiver.infrastructures.cc1101.gpio_pulse_capture import GpioPulseCapture
+from cc1101_transceiver.shared.constants.defaults import PROTOCOL_SOMFY_RTS
 from cc1101_transceiver.shared.exceptions import HardwareAccessError
 
 
@@ -10,11 +19,55 @@ class Cc1101TransceiverAdapter:
         self.spi_bus = spi_bus
         self.spi_chip_select = spi_chip_select
         self.rx_gpio = rx_gpio
+        self.codec = SomfyRtsCodecService()
+        self.pulse_decoder = SomfyRtsPulseDecodeService()
 
     def capture(self, timeout: float, frames: int, frequency_hz: int) -> list[CaptureFrame]:
-        raise HardwareAccessError(
-            "live capture requires GDO-backed raw timing support; current adapter does not fake capture success"
-        )
+        if self.rx_gpio is None:
+            raise HardwareAccessError(
+                "live capture requires --rx-gpio for GDO0-backed raw timing; SPI-only capture is not supported"
+            )
+        if frames < 1:
+            return []
+
+        deadline = datetime.now(timezone.utc).timestamp() + timeout
+        captured: list[CaptureFrame] = []
+        with self._receive_session(frequency_hz):
+            pulse_capture = GpioPulseCapture(self.rx_gpio)
+            while len(captured) < frames:
+                remaining = deadline - datetime.now(timezone.utc).timestamp()
+                if remaining <= 0:
+                    break
+                pulses = pulse_capture.capture(remaining)
+                if not pulses:
+                    break
+                try:
+                    obfuscated_hex = self.pulse_decoder.decode_obfuscated_hex(pulses)
+                    somfy = self.codec.decode_obfuscated_hex(obfuscated_hex)
+                except ValueError:
+                    break
+                captured.append(
+                    CaptureFrame(
+                        index=len(captured),
+                        captured_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                        raw={
+                            "capture_method": "gdo0-gpio-pulse",
+                            "gdo": "GDO0",
+                            "rx_gpio": self.rx_gpio,
+                            "gpio_numbering": "bcm",
+                            "pulse_durations_us": pulses,
+                            "obfuscated_frame_hex": obfuscated_hex,
+                        },
+                        decoded=DecodedFrame(
+                            PROTOCOL_SOMFY_RTS,
+                            somfy.address,
+                            somfy.rolling_code,
+                            somfy.command,
+                            somfy.valid_checksum,
+                        ),
+                    )
+                )
+        return captured
 
     def transmit(self, frame: EncodedSomfyFrame, frequency_hz: int) -> None:
         try:
@@ -29,3 +82,45 @@ class Cc1101TransceiverAdapter:
             "Somfy RTS raw timed transmission requires validated GDO0/asynchronous support; "
             "use --dry-run until wiring/API support is added"
         )
+
+    @contextmanager
+    def _receive_session(self, frequency_hz: int) -> Iterator[object]:
+        try:
+            import cc1101  # type: ignore[import-not-found]
+        except ImportError as exc:
+            raise HardwareAccessError("missing Python dependency 'cc1101'; install requirements on the Pi") from exc
+
+        transceiver_class = getattr(cc1101, "CC1101", None)
+        if transceiver_class is None:
+            raise HardwareAccessError("installed cc1101 package does not expose CC1101")
+
+        try:
+            with transceiver_class() as transceiver:
+                self._configure_receive(cc1101, transceiver, frequency_hz)
+                yield transceiver
+        except HardwareAccessError:
+            raise
+        except (OSError, RuntimeError, PermissionError, AttributeError, TypeError) as exc:
+            raise HardwareAccessError(f"CC1101 receive setup failed: {exc}") from exc
+
+    def _configure_receive(self, cc1101_module: object, transceiver: object, frequency_hz: int) -> None:
+        self._call_if_present(transceiver, "set_base_frequency_hertz", frequency_hz)
+        self._call_if_present(transceiver, "set_symbol_rate_baud", 4800)
+        modulation_format = getattr(getattr(cc1101_module, "ModulationFormat", object), "ASK_OOK", None)
+        if modulation_format is not None:
+            self._call_if_present(transceiver, "_set_modulation_format", modulation_format)
+        packet_length_mode = getattr(getattr(cc1101_module, "PacketLengthMode", object), "FIXED", None)
+        if packet_length_mode is not None:
+            self._call_if_present(transceiver, "set_packet_length_mode", packet_length_mode)
+        sync_mode = getattr(getattr(cc1101_module, "SyncMode", object), "NO_PREAMBLE_AND_SYNC_WORD", None)
+        if sync_mode is not None:
+            self._call_if_present(transceiver, "set_sync_mode", sync_mode)
+        transceive_mode = getattr(getattr(cc1101_module, "_TransceiveMode", object), "ASYNCHRONOUS_SERIAL", None)
+        if transceive_mode is not None:
+            self._call_if_present(transceiver, "_set_transceive_mode", transceive_mode)
+        self._call_if_present(transceiver, "_enable_receive_mode")
+
+    def _call_if_present(self, target: object, name: str, *args: object) -> None:
+        method = getattr(target, name, None)
+        if callable(method):
+            method(*args)

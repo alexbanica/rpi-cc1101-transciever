@@ -17,13 +17,14 @@ Current CC1101 wiring:
 - MISO to physical pin `21`
 - SCK to physical pin `23`
 - CSN to physical pin `24`
+- GDO0 to physical pin `22` / BCM GPIO `25`
 
 Default SPI path is `/dev/spidev0.0`, default bus is `0`, default chip-select is
 `0`, and default Somfy RTS carrier is `433420000` Hz.
 
-No GDO pin is currently specified as wired. Live raw timing capture and live RTS
-transmission are intentionally conservative and report explicit hardware/API
-limitations instead of pretending to work. Initial QA uses `--dry-run` only.
+GDO0-backed receive capture uses BCM GPIO numbering. Live RTS transmission is
+still intentionally conservative and reports an explicit hardware/API limitation
+unless `--dry-run` is used.
 
 ## Dependencies
 
@@ -35,10 +36,11 @@ python3 -m venv .venv
 pip install -r requirements.txt
 ```
 
-`requirements.txt` includes the published `cc1101` package and `spidev`.
-Raspberry Pi OS may also require system packages for SPI access. The published
-`cc1101` package is GPL-3.0-or-later, so downstream redistribution should account
-for that dependency license.
+`requirements.txt` includes the published `cc1101` package, `spidev`, and
+`rpi-lgpio` for the `RPi.GPIO`-compatible BCM GPIO edge capture path. Raspberry
+Pi OS may also require system packages for SPI and GPIO access. The published
+`cc1101` package is GPL-3.0-or-later, so downstream redistribution should
+account for that dependency license.
 
 ## Project Structure
 
@@ -71,7 +73,7 @@ to `python3`, and executes `python -m cc1101_transceiver "$@"`.
 Receiver examples:
 
 ```sh
-./run.sh receiver capture --out-file situo_capture.json
+./run.sh receiver capture --rx-gpio 25 --out-file situo_capture.json
 ./run.sh receiver inspect situo_capture.json
 ./run.sh receiver decode situo_capture.json
 ```
@@ -90,8 +92,7 @@ Emitter examples:
 Receiver arguments:
 
 - `receiver capture`: captures RF/timing observations and writes a capture JSON
-  file only when at least one frame is obtained. Current hardware support is
-  conservative and reports a GDO/raw timing limitation instead of faking capture.
+  file only when at least one GDO0 pulse-timing frame decodes successfully.
 - `--out-file`: required output path for capture JSON.
 - `--timeout`: capture wait time in seconds. Default: `10.0`.
 - `--frames`: number of frames to collect. Default: `1`.
@@ -99,13 +100,15 @@ Receiver arguments:
   `selected`.
 - `--select-index`: selected frame index when storing a single frame. Default:
   `0`.
-- `--rx-gpio`: optional receive GPIO/GDO pin. It is only meaningful after a
-  GDO-backed capture adapter is implemented.
+- `--rx-gpio`: optional receive GDO pin as a BCM GPIO number. Use `25` for the
+  documented GDO0 wiring. Omitting it keeps the explicit SPI-only capture
+  limitation.
 - `receiver inspect <path>`: reads a capture or profile JSON file and prints a
   compact summary without touching hardware.
 - `receiver decode <capture>`: reads capture JSON and prints decoded Somfy RTS
-  fields when the capture already contains decoded data or raw obfuscated frame
-  bytes under `raw.obfuscated_frame_hex`.
+  fields when the capture already contains decoded data, raw obfuscated frame
+  bytes under `raw.obfuscated_frame_hex`, or GDO0 pulse timing under
+  `raw.pulse_durations_us`.
 
 Emitter arguments:
 
@@ -146,7 +149,7 @@ rolling-code state and desynchronize the local clone profile.
 
 ## JSON Formats
 
-Raw capture:
+GDO0-backed raw capture:
 
 ```json
 {
@@ -159,6 +162,20 @@ Raw capture:
       "index": 0,
       "captured_at": "2026-05-20T00:00:00Z",
       "raw": {
+        "capture_method": "gdo0-gpio-pulse",
+        "gdo": "GDO0",
+        "rx_gpio": 25,
+        "gpio_numbering": "bcm",
+        "pulse_durations_us": [
+          {
+            "level": 1,
+            "duration_us": 9415
+          },
+          {
+            "level": 0,
+            "duration_us": 89565
+          }
+        ],
         "obfuscated_frame_hex": "a78e8a589b2988"
       },
       "decoded": {
@@ -211,9 +228,15 @@ ssh pi14.pi.home 'cd ~/rpi-cc1101-transciever && . .venv/bin/activate && python 
 ssh pi14.pi.home 'cd ~/rpi-cc1101-transciever && . .venv/bin/activate && python -m unittest discover -s tests -p "test_*.py"'
 ssh pi14.pi.home 'cd ~/rpi-cc1101-transciever && ./run_cc1101_connection_test.sh --chip-select 0'
 ssh pi14.pi.home 'cd ~/rpi-cc1101-transciever && . .venv/bin/activate && ./run.sh --help'
-ssh pi14.pi.home 'cd ~/rpi-cc1101-transciever && . .venv/bin/activate && ./run.sh emitter init-profile --profile /tmp/cc1101_qa_profile.json --address a1b2c3 --rolling-code 1234'
-ssh pi14.pi.home 'cd ~/rpi-cc1101-transciever && . .venv/bin/activate && ./run.sh emitter send --profile /tmp/cc1101_qa_profile.json --command up --dry-run'
+ssh pi14.pi.home 'cd ~/rpi-cc1101-transciever && . .venv/bin/activate && ./run.sh receiver capture --rx-gpio 25 --out-file /tmp/cc1101_gdo0_capture.json --timeout 10 --frames 1'
+ssh pi14.pi.home 'cd ~/rpi-cc1101-transciever && . .venv/bin/activate && ./run.sh receiver inspect /tmp/cc1101_gdo0_capture.json'
+ssh pi14.pi.home 'cd ~/rpi-cc1101-transciever && . .venv/bin/activate && ./run.sh receiver decode /tmp/cc1101_gdo0_capture.json'
+ssh pi14.pi.home 'cd ~/rpi-cc1101-transciever && . .venv/bin/activate && ./run.sh emitter clone-profile --capture /tmp/cc1101_gdo0_capture.json --profile /tmp/cc1101_gdo0_profile.json --name qa-gdo0'
+ssh pi14.pi.home 'cd ~/rpi-cc1101-transciever && . .venv/bin/activate && ./run.sh emitter send --profile /tmp/cc1101_gdo0_profile.json --command up --dry-run'
 ```
+
+Press the authorized Somfy RTS remote once during the `receiver capture`
+timeout window.
 
 Do not run live `emitter send` without `--dry-run` during initial QA.
 
