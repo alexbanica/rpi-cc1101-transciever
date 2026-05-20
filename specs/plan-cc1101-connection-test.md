@@ -1,6 +1,6 @@
 # Implementation Plan: CC1101 Connection Test Script
 
-Status: Proposed
+Status: Approved
 
 Approved spec: `specs/spec-cc1101-connection-test.md`
 
@@ -11,11 +11,12 @@ Approved spec: `specs/spec-cc1101-connection-test.md`
 
 ## Scope
 
-Implement the approved one-file Python CC1101 SPI connection diagnostic and the minimal documentation needed to run and QA it.
+Implement the approved Python CC1101 SPI connection diagnostic, a thin local bash wrapper over it, and the minimal documentation needed to run and QA both entry points.
 
 ## Files To Change
 
 - Add `cc1101_connection_test.py`.
+- Add `run_cc1101_connection_test.sh`.
 - Update `README.md`.
 - Keep `specs/spec-cc1101-connection-test.md` as the approved behavior source.
 - Keep this implementation plan as the approved execution source after plan approval.
@@ -28,6 +29,7 @@ Implement the approved one-file Python CC1101 SPI connection diagnostic and the 
    - CC1101 identity response classification.
    - Exit-code decision from candidate results.
 2. Add a lightweight local test file only if the implementation remains simple without introducing package scaffolding. If a test file would add unnecessary structure for this initial one-file utility, validate pure functions through `python3 -m doctest cc1101_connection_test.py` or equivalent inline deterministic checks.
+3. Do not create a separate unit test file for the local wrapper. Validate wrapper behavior with shell syntax checks and command execution.
 
 ## Implementation Steps
 
@@ -58,10 +60,17 @@ Implement the approved one-file Python CC1101 SPI connection diagnostic and the 
    - Candidate pass/fail reason.
    - Final result.
 7. Update `README.md` with:
+   - Local bash wrapper command.
    - Run command on the Pi.
    - Copy-and-run command using a hostname argument, for example with `rsync`.
    - Exit-code meanings.
    - Scope limitation: SPI reachability only, not RF performance or optional GDO wiring.
+8. Create `run_cc1101_connection_test.sh` as a thin bash wrapper:
+   - Use `#!/usr/bin/env bash`.
+   - Resolve the repository root from the wrapper file location.
+   - Execute `python3 "$script_dir/cc1101_connection_test.py" "$@"`.
+   - Preserve the Python script's stdout, stderr, and exit code.
+   - Do not duplicate diagnostic logic.
 
 ## Validation Commands
 
@@ -70,8 +79,17 @@ Run locally:
 ```sh
 python3 -m py_compile cc1101_connection_test.py
 python3 -m doctest cc1101_connection_test.py
+bash -n run_cc1101_connection_test.sh
 git diff --check
 ```
+
+Run local wrapper QA:
+
+```sh
+./run_cc1101_connection_test.sh --help
+```
+
+When run on a machine without `spidev` or SPI nodes, confirm the wrapper returns the same exit-code class as the Python script for the same arguments. If local dependency state prevents a meaningful comparison, record that in the completion report.
 
 Run hardware QA against a supplied host, initially `pi14.pi.home`:
 
@@ -88,6 +106,7 @@ If shell quoting or exit-code capture needs to be adjusted during implementation
 
 - Review script behavior against every deterministic behavior item in the approved spec.
 - Confirm the script remains a single Python file.
+- Confirm the local wrapper is thin, forwards arguments unchanged, resolves the Python script relative to itself, and preserves exit code.
 - Confirm no RF transmit or persistent Pi configuration changes are introduced.
 - Confirm README instructions use a hostname variable or argument rather than hard-coding only `pi14.pi.home`.
 - Record hardware QA output in the completion report.
@@ -99,7 +118,7 @@ If shell quoting or exit-code capture needs to be adjusted during implementation
 
 ## Commit And Push Expectations
 
-- After implementation, review, QA, and validation, commit the approved spec, approved plan, script, README changes, and any focused tests.
+- After implementation, review, QA, and validation, commit the approved spec, approved plan, scripts, README changes, and any focused tests.
 - Use a non-draft commit only if local validation and hardware QA complete successfully.
 - Use a `DRAFT` commit message if hardware QA or required validation is blocked or failing.
 - Push the implementation branch if repository access allows it.

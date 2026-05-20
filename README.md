@@ -13,11 +13,17 @@ Run it directly on the Pi:
 python3 cc1101_connection_test.py
 ```
 
+Or use the local wrapper from this checkout:
+
+```sh
+./run_cc1101_connection_test.sh
+```
+
 By default, the script probes `/dev/spidev0.0` and `/dev/spidev0.1`. To select a
 specific chip-select:
 
 ```sh
-python3 cc1101_connection_test.py --chip-select 0
+./run_cc1101_connection_test.sh --chip-select 0
 ```
 
 Copy and run it from this development machine:
