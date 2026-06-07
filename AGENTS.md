@@ -36,7 +36,8 @@ Domain code must not import CLI parsing, filesystem persistence, CC1101 librarie
 - Default symbol rate: `4800`
 - Default capture timeout: `10.0`
 - Default capture frame count: `1`
-- Supported receive GDO wiring: CC1101 `GDO0` to Raspberry Pi physical pin `22` / BCM GPIO `25`
+- Supported receive/TX GDO wiring: CC1101 `GDO0` to Raspberry Pi physical pin `22` / BCM GPIO `25`
+- Default live TX GPIO: BCM GPIO `25`
 - Capture JSON format: `cc1101-somfy-rts-capture-v1`
 - Profile JSON format: `cc1101-somfy-rts-profile-v1`
 
@@ -52,7 +53,7 @@ bash -n run_cc1101_connection_test.sh
 git diff --check
 ```
 
-No-live-transmit Raspberry Pi QA target:
+Raspberry Pi QA target:
 
 ```bash
 rsync -az --delete --exclude .git --exclude .venv ./ pi14.pi.home:~/rpi-cc1101-transciever/
@@ -66,12 +67,15 @@ ssh pi14.pi.home 'cd ~/rpi-cc1101-transciever && . .venv/bin/activate && ./run.s
 ssh pi14.pi.home 'cd ~/rpi-cc1101-transciever && . .venv/bin/activate && ./run.sh receiver decode /tmp/cc1101_gdo0_capture.json'
 ssh pi14.pi.home 'cd ~/rpi-cc1101-transciever && . .venv/bin/activate && ./run.sh emitter clone-profile --capture /tmp/cc1101_gdo0_capture.json --profile /tmp/cc1101_gdo0_profile.json --name qa-gdo0'
 ssh pi14.pi.home 'cd ~/rpi-cc1101-transciever && . .venv/bin/activate && ./run.sh emitter send --profile /tmp/cc1101_gdo0_profile.json --command up --dry-run'
+ssh pi14.pi.home 'cd ~/rpi-cc1101-transciever && . .venv/bin/activate && ./run.sh emitter send --profile /tmp/cc1101_gdo0_profile.json --command my'
 ```
 
 The `receiver capture` QA command requires pressing the authorized Somfy RTS remote once during the timeout window.
 
-Do not run live `emitter send` without `--dry-run` unless a new approved spec explicitly allows live RF transmission.
+The live `my` command requires observing the authorized Somfy device. If `my` is not safe or observable for the device, use one explicit user-approved non-programming command such as `up` or `down`.
+
+Do not run live `emitter send --command prog` unless a new approved spec or separate explicit user instruction authorizes programming-mode testing.
 
 ## Operational Constraints
 
-The existing `cc1101_connection_test.py` diagnostic must remain runnable. The Somfy RTS adapter must not fake live capture or transmission success. GDO0-backed receive capture uses BCM GPIO `25`; raw Somfy RTS transmission must report an explicit hardware/API limitation until TX timing is separately specified and validated.
+The existing `cc1101_connection_test.py` diagnostic must remain runnable. The Somfy RTS adapter must not fake live capture or transmission success. GDO0-backed receive capture and live transmission use BCM GPIO `25` by default; live TX must use the specified Somfy RTS pulse plan, CC1101 asynchronous ASK/OOK TX, and GPIO pulse output before reporting success.

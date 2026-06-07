@@ -25,6 +25,7 @@ from cc1101_transceiver.shared.constants.defaults import (
     DEFAULT_SPI_BUS,
     DEFAULT_SPI_CHIP_SELECT,
     DEFAULT_SYMBOL_RATE,
+    DEFAULT_TX_GPIO_BCM,
 )
 from cc1101_transceiver.shared.constants.exit_codes import EXIT_HARDWARE, EXIT_OPERATIONAL, EXIT_SUCCESS, EXIT_USAGE
 from cc1101_transceiver.shared.exceptions import HardwareAccessError, InvalidInputError, OperationalError
@@ -71,6 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
     send.add_argument("--command", choices=SomfyCommand.labels(), required=True)
     send.add_argument("--allow-programming", action="store_true")
     send.add_argument("--dry-run", action="store_true")
+    send.add_argument("--tx-gpio", type=int, default=DEFAULT_TX_GPIO_BCM)
     add_rf_options(send)
     return parser
 
@@ -162,7 +164,12 @@ def dispatch(args: argparse.Namespace) -> int:
             print(f"profile={args.profile} address={profile.address} rolling_code={profile.rolling_code}")
             return EXIT_SUCCESS
         if args.emitter_command == "send":
-            adapter = Cc1101TransceiverAdapter(args.spi_bus, args.spi_chip_select)
+            adapter = Cc1101TransceiverAdapter(
+                args.spi_bus,
+                args.spi_chip_select,
+                tx_gpio=args.tx_gpio,
+                symbol_rate=args.symbol_rate,
+            )
             result = EmitService(profile_repository, codec, adapter).send(
                 Path(args.profile),
                 SomfyCommand.from_label(args.command),

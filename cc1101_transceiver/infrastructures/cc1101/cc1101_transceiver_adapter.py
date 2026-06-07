@@ -6,19 +6,30 @@ from typing import Iterator
 
 from cc1101_transceiver.applications.services.somfy_rts_codec_service import SomfyRtsCodecService
 from cc1101_transceiver.applications.services.somfy_rts_pulse_decode_service import SomfyRtsPulseDecodeService
+from cc1101_transceiver.applications.services.somfy_rts_pulse_encode_service import SomfyRtsPulseEncodeService
 from cc1101_transceiver.domains.entities.capture import CaptureFrame
 from cc1101_transceiver.domains.entities.capture import DecodedFrame
 from cc1101_transceiver.domains.entities.somfy_frame import EncodedSomfyFrame
 from cc1101_transceiver.infrastructures.cc1101.gpio_pulse_capture import GpioPulseCapture
-from cc1101_transceiver.shared.constants.defaults import PROTOCOL_SOMFY_RTS
+from cc1101_transceiver.infrastructures.cc1101.gpio_pulse_transmitter import GpioPulseTransmitter
+from cc1101_transceiver.shared.constants.defaults import DEFAULT_SYMBOL_RATE, DEFAULT_TX_GPIO_BCM, PROTOCOL_SOMFY_RTS
 from cc1101_transceiver.shared.exceptions import HardwareAccessError
 
 
 class Cc1101TransceiverAdapter:
-    def __init__(self, spi_bus: int, spi_chip_select: int, rx_gpio: int | None = None):
+    def __init__(
+        self,
+        spi_bus: int,
+        spi_chip_select: int,
+        rx_gpio: int | None = None,
+        tx_gpio: int = DEFAULT_TX_GPIO_BCM,
+        symbol_rate: int = DEFAULT_SYMBOL_RATE,
+    ):
         self.spi_bus = spi_bus
         self.spi_chip_select = spi_chip_select
         self.rx_gpio = rx_gpio
+        self.tx_gpio = tx_gpio
+        self.symbol_rate = symbol_rate
         self.codec = SomfyRtsCodecService()
         self.pulse_decoder = SomfyRtsPulseDecodeService()
 
@@ -70,6 +81,13 @@ class Cc1101TransceiverAdapter:
         return captured
 
     def transmit(self, frame: EncodedSomfyFrame, frequency_hz: int) -> None:
+        pulses = SomfyRtsPulseEncodeService().encode_obfuscated_hex(frame.obfuscated_hex)
+        with self._transmit_session(frequency_hz):
+            pulse_transmitter = GpioPulseTransmitter(self.tx_gpio)
+            pulse_transmitter.transmit(pulses)
+
+    @contextmanager
+    def _transmit_session(self, frequency_hz: int) -> Iterator[object]:
         try:
             import cc1101  # type: ignore[import-not-found]
         except ImportError as exc:
@@ -78,10 +96,19 @@ class Cc1101TransceiverAdapter:
         transceiver_class = getattr(cc1101, "CC1101", None)
         if transceiver_class is None:
             raise HardwareAccessError("installed cc1101 package does not expose CC1101")
-        raise HardwareAccessError(
-            "Somfy RTS raw timed transmission requires validated GDO0/asynchronous support; "
-            "use --dry-run until wiring/API support is added"
-        )
+
+        try:
+            with transceiver_class() as transceiver:
+                self._configure_transmit(cc1101, transceiver, frequency_hz)
+                async_session = getattr(transceiver, "asynchronous_transmission", None)
+                if not callable(async_session):
+                    raise HardwareAccessError("CC1101 asynchronous TX API is unavailable")
+                with async_session():
+                    yield transceiver
+        except HardwareAccessError:
+            raise
+        except (OSError, RuntimeError, PermissionError, AttributeError, TypeError) as exc:
+            raise HardwareAccessError(f"CC1101 transmit setup failed: {exc}") from exc
 
     @contextmanager
     def _receive_session(self, frequency_hz: int) -> Iterator[object]:
@@ -105,7 +132,7 @@ class Cc1101TransceiverAdapter:
 
     def _configure_receive(self, cc1101_module: object, transceiver: object, frequency_hz: int) -> None:
         self._call_if_present(transceiver, "set_base_frequency_hertz", frequency_hz)
-        self._call_if_present(transceiver, "set_symbol_rate_baud", 4800)
+        self._call_if_present(transceiver, "set_symbol_rate_baud", DEFAULT_SYMBOL_RATE)
         modulation_format = getattr(getattr(cc1101_module, "ModulationFormat", object), "ASK_OOK", None)
         if modulation_format is not None:
             self._call_if_present(transceiver, "_set_modulation_format", modulation_format)
@@ -119,6 +146,26 @@ class Cc1101TransceiverAdapter:
         if transceive_mode is not None:
             self._call_if_present(transceiver, "_set_transceive_mode", transceive_mode)
         self._call_if_present(transceiver, "_enable_receive_mode")
+
+    def _configure_transmit(self, cc1101_module: object, transceiver: object, frequency_hz: int) -> None:
+        self._call_if_present(transceiver, "set_base_frequency_hertz", frequency_hz)
+        self._call_if_present(transceiver, "set_symbol_rate_baud", self.symbol_rate)
+        modulation_format = getattr(getattr(cc1101_module, "ModulationFormat", object), "ASK_OOK", None)
+        if modulation_format is not None:
+            self._call_if_present(transceiver, "_set_modulation_format", modulation_format)
+        packet_length_mode = getattr(getattr(cc1101_module, "PacketLengthMode", object), "FIXED", None)
+        if packet_length_mode is not None:
+            self._call_if_present(transceiver, "set_packet_length_mode", packet_length_mode)
+        sync_mode = getattr(getattr(cc1101_module, "SyncMode", object), "NO_PREAMBLE_AND_SYNC_WORD", None)
+        if sync_mode is not None:
+            self._call_if_present(transceiver, "set_sync_mode", sync_mode)
+        transceive_mode = getattr(getattr(cc1101_module, "_TransceiveMode", object), "ASYNCHRONOUS_SERIAL", None)
+        if transceive_mode is None:
+            raise HardwareAccessError("CC1101 asynchronous serial TX mode is unavailable")
+        set_transceive_mode = getattr(transceiver, "_set_transceive_mode", None)
+        if not callable(set_transceive_mode):
+            raise HardwareAccessError("CC1101 asynchronous serial TX mode cannot be selected")
+        set_transceive_mode(transceive_mode)
 
     def _call_if_present(self, target: object, name: str, *args: object) -> None:
         method = getattr(target, name, None)

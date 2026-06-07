@@ -285,6 +285,32 @@ class PersistenceAndServicesTest(unittest.TestCase):
 
             self.assertEqual(JsonProfileRepository().read(profile_path).rolling_code, 1234)
 
+    def test_live_send_success_advances_profile_once_after_transmit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            profile_path = Path(tmp) / "profile.json"
+            ProfileInitializationService(JsonProfileRepository()).initialize(
+                profile_path,
+                "a1b2c3",
+                1234,
+                "blind",
+                433420000,
+            )
+            transceiver = FakeTransceiver()
+
+            result = EmitService(JsonProfileRepository(), self.codec, transceiver).send(
+                profile_path,
+                SomfyCommand.UP,
+                dry_run=False,
+                allow_programming=False,
+            )
+
+            self.assertEqual(result.encoded_frame.obfuscated_hex, "a78e8a589b2988")
+            self.assertTrue(result.transmitted)
+            self.assertFalse(result.dry_run)
+            self.assertEqual(transceiver.transmissions, [("a78e8a589b2988", 433420000)])
+            self.assertEqual(result.next_rolling_code, 1235)
+            self.assertEqual(JsonProfileRepository().read(profile_path).rolling_code, 1235)
+
     def test_invalid_capture_without_decoded_frame_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             capture_path = Path(tmp) / "capture.json"

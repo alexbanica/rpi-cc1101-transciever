@@ -3,7 +3,7 @@
 Python 3 tooling for a Raspberry Pi connected to a CC1101 transceiver. The
 repository keeps the original SPI reachability diagnostic and adds a DDD/onion
 Somfy RTS transceiver package for clone-oriented capture, decode, profile, and
-dry-run emission workflows.
+live emission workflows.
 
 ## Hardware
 
@@ -22,9 +22,8 @@ Current CC1101 wiring:
 Default SPI path is `/dev/spidev0.0`, default bus is `0`, default chip-select is
 `0`, and default Somfy RTS carrier is `433420000` Hz.
 
-GDO0-backed receive capture uses BCM GPIO numbering. Live RTS transmission is
-still intentionally conservative and reports an explicit hardware/API limitation
-unless `--dry-run` is used.
+GDO0-backed receive capture and live RTS transmission use BCM GPIO numbering.
+By default, live transmission drives CC1101 `GDO0` through BCM GPIO `25`.
 
 ## Dependencies
 
@@ -87,6 +86,7 @@ Emitter examples:
 ./run.sh emitter send --profile profiles/blind.json --command down --dry-run
 ./run.sh emitter send --profile profiles/blind.json --command my --dry-run
 ./run.sh emitter send --profile profiles/blind.json --command prog --allow-programming --dry-run
+./run.sh emitter send --profile profiles/blind.json --command my
 ```
 
 Receiver arguments:
@@ -127,6 +127,7 @@ Emitter arguments:
   `my`, and `prog`.
 - `--dry-run`: encode, print, and persist the next rolling code without
   transmitting RF or touching the CC1101 adapter.
+- `--tx-gpio`: live transmit GDO0 pin as a BCM GPIO number. Default: `25`.
 - `--allow-programming`: required with `--command prog`; without it, `prog`
   fails as invalid input.
 
@@ -141,8 +142,15 @@ Common RF/CC1101 arguments:
 `prog` is guarded and fails unless `--allow-programming` is supplied.
 
 Dry-run emission encodes the frame, prints the frame fields, does not touch the
-CC1101 adapter, and advances the profile rolling code. Failed validation or
-failed hardware access does not advance the rolling code.
+CC1101 adapter, and advances the profile rolling code. Live emission encodes the
+same Somfy RTS frame, configures CC1101 asynchronous ASK/OOK TX, drives the
+approved GDO0 pulse plan through `--tx-gpio`, and advances the profile rolling
+code once only after transmit returns successfully. Failed validation or failed
+hardware access does not advance the rolling code.
+
+Live RF transmission can move the paired Somfy device. `prog` is a programming
+operation that can affect pairing or configuration, so it remains blocked unless
+`--allow-programming` is supplied.
 
 Using the original physical remote after cloning can advance the receiver's
 rolling-code state and desynchronize the local clone profile.
@@ -219,7 +227,7 @@ bash -n run_cc1101_connection_test.sh
 git diff --check
 ```
 
-No-live-transmit Pi QA:
+Pi QA:
 
 ```sh
 rsync -az --delete --exclude .git --exclude .venv ./ pi14.pi.home:~/rpi-cc1101-transciever/
@@ -233,12 +241,16 @@ ssh pi14.pi.home 'cd ~/rpi-cc1101-transciever && . .venv/bin/activate && ./run.s
 ssh pi14.pi.home 'cd ~/rpi-cc1101-transciever && . .venv/bin/activate && ./run.sh receiver decode /tmp/cc1101_gdo0_capture.json'
 ssh pi14.pi.home 'cd ~/rpi-cc1101-transciever && . .venv/bin/activate && ./run.sh emitter clone-profile --capture /tmp/cc1101_gdo0_capture.json --profile /tmp/cc1101_gdo0_profile.json --name qa-gdo0'
 ssh pi14.pi.home 'cd ~/rpi-cc1101-transciever && . .venv/bin/activate && ./run.sh emitter send --profile /tmp/cc1101_gdo0_profile.json --command up --dry-run'
+ssh pi14.pi.home 'cd ~/rpi-cc1101-transciever && . .venv/bin/activate && ./run.sh emitter send --profile /tmp/cc1101_gdo0_profile.json --command my'
 ```
 
 Press the authorized Somfy RTS remote once during the `receiver capture`
 timeout window.
 
-Do not run live `emitter send` without `--dry-run` during initial QA.
+The live `my` command requires observing the authorized Somfy device. If `my` is
+not a safe observable command for the device, use one explicit user-approved
+non-programming command such as `up` or `down`. Do not run live `prog` during QA
+unless programming-mode testing is separately authorized.
 
 ## CC1101 SPI Connection Test
 
