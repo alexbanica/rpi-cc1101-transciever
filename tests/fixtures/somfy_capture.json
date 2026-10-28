@@ -1,0 +1,22 @@
+{
+  "format": "cc1101-somfy-rts-capture-v1",
+  "frequency_hz": 433420000,
+  "frames": [
+    {
+      "captured_at": "2026-05-20T00:00:00Z",
+      "decoded": {
+        "address": "a1b2c3",
+        "command": "up",
+        "protocol": "somfy-rts",
+        "rolling_code": 1234,
+        "valid_checksum": true
+      },
+      "index": 0,
+      "raw": {
+        "obfuscated_frame_hex": "a78e8a589b2988"
+      }
+    }
+  ],
+  "spi_bus": 0,
+  "spi_chip_select": 0
+}
