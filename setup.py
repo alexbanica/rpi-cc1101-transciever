@@ -6,5 +6,5 @@ setup(
     version="0.1.0",
     packages=find_packages(),
     python_requires=">=3.10",
-    install_requires=["cc1101==3.0.0", "spidev"],
+    install_requires=["cc1101==3.0.0", "lgpio>=0.2.2.0", "spidev"],
 )

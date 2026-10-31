@@ -26,6 +26,18 @@ def nominal_somfy_pulses(obfuscated_hex: str = "a78e8a589b2988") -> list[dict[st
     return _merge(samples)
 
 
+def repeated_somfy_pulses(obfuscated_hex: str = "a78e8a589b2988") -> list[dict[str, int]]:
+    """Synthetic repeat: seven hardware sync pairs, no wakeup pulse."""
+    frame = nominal_somfy_pulses(obfuscated_hex)
+    # Remove wakeup and insert five more sync pairs before software sync.
+    return _merge([(1, HARDWARE_SYNC_US), (0, HARDWARE_SYNC_US)] * 7 + [(1, SOFTWARE_SYNC_HIGH_US), (0, HALF_SYMBOL_US)] + _payload_samples(obfuscated_hex))
+
+
+def _payload_samples(obfuscated_hex: str) -> list[tuple[int, int]]:
+    bits = "".join(f"{byte:08b}" for byte in bytes.fromhex(obfuscated_hex))
+    return [sample for bit in bits for sample in ([(1, HALF_SYMBOL_US), (0, HALF_SYMBOL_US)] if bit == "1" else [(0, HALF_SYMBOL_US), (1, HALF_SYMBOL_US)])]
+
+
 def _merge(samples: list[tuple[int, int]]) -> list[dict[str, int]]:
     merged: list[dict[str, int]] = []
     for level, duration_us in samples:

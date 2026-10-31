@@ -35,9 +35,10 @@ python3 -m venv .venv
 pip install -r requirements.txt
 ```
 
-`requirements.txt` includes the published `cc1101` package, `spidev`, and
-`rpi-lgpio` for the `RPi.GPIO`-compatible BCM GPIO edge capture path. Raspberry
-Pi OS may also require system packages for SPI and GPIO access. The published
+`requirements.txt` includes the published `cc1101` package, `spidev`, `lgpio`
+for timestamped GDO0 receive events, and `rpi-lgpio` for the existing
+`RPi.GPIO`-compatible live transmit output. Raspberry Pi OS may also require
+system packages and permissions for SPI and GPIO access. The published
 `cc1101` package is GPL-3.0-or-later, so downstream redistribution should
 account for that dependency license.
 
@@ -77,6 +78,28 @@ Receiver examples:
 ./run.sh receiver decode situo_capture.json
 ```
 
+Receive capture configures the CC1101 for asynchronous ASK/OOK serial output on
+GDO0 and checks the relevant register readbacks before listening. The receive
+GPIO is selected by BCM line name and Raspberry Pi gpiochip information; the
+chip index is not assumed. `lgpio` event-reported levels and event timestamps
+determine edge-to-edge pulse durations, so callback scheduling and later pin
+reads do not supply pulse timing. The first edge anchors a run but does not
+create a leading pulse; timeout does not add a synthetic trailing pulse. Invalid
+or discontinuous edge sequences split runs so a frame is never joined across a
+missing or malformed transition.
+
+The decoder searches observed runs for first-frame or repeat-frame
+synchronization, skips surrounding idle/noise, and accepts only complete
+56-bit frames with supported commands and a valid Somfy checksum. Repeated
+frames do not require a synthetic wakeup. Invalid candidates do not hide later
+valid candidates. `--timeout` bounds one listening window and `--frames` is the
+maximum number of valid observed frames to retain. A capture file is written
+when at least one valid frame was received; if the window ends with fewer valid
+frames than requested, those frames are returned as a partial result. Zero
+valid frames is an operational error and does not write a successful capture.
+Stored raw pulse durations are measured observations, including a complete
+final measured interval when only its prefix is needed to decode the payload.
+
 Emitter examples:
 
 ```sh
@@ -92,7 +115,8 @@ Emitter examples:
 Receiver arguments:
 
 - `receiver capture`: captures RF/timing observations and writes a capture JSON
-  file only when at least one GDO0 pulse-timing frame decodes successfully.
+  file only when at least one observed GDO0 frame passes Somfy frame and
+  checksum validation.
 - `--out-file`: required output path for capture JSON.
 - `--timeout`: capture wait time in seconds. Default: `10.0`.
 - `--frames`: number of frames to collect. Default: `1`.
@@ -126,7 +150,8 @@ Emitter arguments:
 - `--command`: required Somfy RTS command. Allowed values are `up`, `down`,
   `my`, and `prog`.
 - `--dry-run`: encode, print, and persist the next rolling code without
-  transmitting RF or touching the CC1101 adapter.
+  transmitting RF or touching the CC1101 adapter. It advances the profile's
+  rolling code, so use a disposable profile copy for dry-run checks.
 - `--tx-gpio`: live transmit GDO0 pin as a BCM GPIO number. Default: `25`.
 - `--allow-programming`: required with `--command prog`; without it, `prog`
   fails as invalid input.
@@ -142,7 +167,8 @@ Common RF/CC1101 arguments:
 `prog` is guarded and fails unless `--allow-programming` is supplied.
 
 Dry-run emission encodes the frame, prints the frame fields, does not touch the
-CC1101 adapter, and advances the profile rolling code. Live emission encodes the
+CC1101 adapter, and advances the profile rolling code. Use a disposable profile
+copy when checking this behavior. Live emission encodes the
 same Somfy RTS frame, configures CC1101 asynchronous ASK/OOK TX, drives the
 approved GDO0 pulse plan through `--tx-gpio`, and advances the profile rolling
 code once only after transmit returns successfully. Failed validation or failed
@@ -226,6 +252,16 @@ bash -n run.sh
 bash -n run_cc1101_connection_test.sh
 git diff --check
 ```
+
+These local tests exercise deterministic and synthetic inputs; they do not
+establish reception from a real Somfy remote. Likewise, Pi dependency
+installation, compilation, unit tests, SPI identity, and receive-register
+readback verify software/setup and radio configuration, not an over-the-air
+capture. Real receive acceptance requires a coordinated authorized remote
+press during `receiver capture`, followed by successful `receiver inspect`,
+`receiver decode`, and `emitter clone-profile` on that capture. Use a disposable
+profile copy for the subsequent dry-run because dry-run advances its rolling
+code. No synthetic fixture substitutes for that hardware evidence.
 
 Pi QA:
 
