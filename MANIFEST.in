@@ -1,0 +1,16 @@
+include README.md LICENSE setup.py pyproject.toml requirements.txt
+include cc1101_transceiver/_version.py
+recursive-include cc1101_transceiver *.py
+exclude tests/*
+prune tests
+exclude cc1101_connection_test.py run.sh run_cc1101_connection_test.sh
+prune .git
+prune .github
+prune .idea
+prune .agents
+prune .aws
+prune .codex
+prune build
+prune dist
+prune *.egg-info
+global-exclude *.py[cod] __pycache__

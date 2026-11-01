@@ -41,6 +41,70 @@ Pi OS may also require system packages for SPI and GPIO access. The published
 `cc1101` package is GPL-3.0-or-later, so downstream redistribution should
 account for that dependency license.
 
+## Tagged Python packages
+
+The GitHub Actions workflow builds and publishes a package when an eligible tag
+is pushed to GitHub. Supported tags are `X.Y.Z`, `vX.Y.Z`, `X.Y.Z-betaN`, and
+`vX.Y.Z-betaN`, where each version component has no redundant leading zero and
+`N` is a positive integer. For example, an operator can publish stable `1.2.3`
+with:
+
+```sh
+git tag 1.2.3
+git push origin 1.2.3
+```
+
+The workflow publishes to the Forgejo PyPI registry at
+`https://forgejo.alexlab.nl/api/packages/public/pypi`. A tag pushed only to
+Forgejo does not trigger it. The registry package is named
+`rpi-cc1101-transciever`; the Python import package is
+`cc1101_transceiver`. Stable tags map directly to PEP 440 versions (for example,
+`v1.2.3` becomes `1.2.3`); beta tags normalize to PEP 440 beta versions
+(`1.2.3-beta2` becomes `1.2.3b2`). The workflow publishes one platform
+independent wheel and one source archive for the tag: for version `1.2.3`,
+`rpi_cc1101_transciever-1.2.3-py3-none-any.whl` and
+`rpi_cc1101_transciever-1.2.3.tar.gz`. Branch and pull-request CI only validates
+and builds; it does not publish. An untagged local build uses fallback `0.1.0`.
+
+For package installation, use either the sibling PyPI proxy
+`https://pypi.alexlab.nl/simple/` or the direct Forgejo simple index
+`https://forgejo.alexlab.nl/api/packages/public/pypi/simple/`. These are
+configuration alternatives; their current availability has not been verified.
+In a Dockerfile, install ordinary dependencies from PyPI separately, then
+request the exact private project version from the chosen private index. This
+avoids pip selecting a same-named package from an unordered extra index:
+
+```dockerfile
+COPY requirements.txt /tmp/requirements.txt
+RUN python -m pip install --index-url https://pypi.org/simple/ -r /tmp/requirements.txt \
+    && python -m pip install --no-deps --index-url https://pypi.alexlab.nl/simple/ \
+       rpi-cc1101-transciever==1.2.3
+RUN python -m cc1101_transceiver --help
+```
+
+Replace `1.2.3` with the exact stable or normalized beta version being installed.
+If the registry requires authentication, configure pip credentials through a
+secret mechanism scoped to the install step; never put credentials in the
+Dockerfile, a URL, build arguments, or an image layer. The publishing workflow
+expects the repository secrets `FORGEJO_PACKAGE_USERNAME` and
+`FORGEJO_PACKAGE_TOKEN`; they are exposed only to its final Twine upload step,
+after the credential-free validation and artifact checks succeed. Pull request
+and branch validation does not need these secrets.
+
+Repository administrators must configure least privilege package tokens and
+appropriate tag and branch protections before relying on publication. Those
+administrator controls, hosted workflow execution, registry availability, and
+package installation from either index have not been verified here. Publication
+trusts maintainers authorized to push eligible GitHub tags and their reviewed
+workflow changes. If an upload fails after the registry accepted only part of
+the pair, the workflow does not overwrite, delete, or automatically retry
+packages; an operator must reconcile the registry state before another attempt.
+
+Installing the package does not provide Raspberry Pi system libraries or
+hardware access. Live use also requires compatible SPI/GPIO system dependencies
+and access to the required Raspberry Pi devices. Container hardware operation
+has not been validated.
+
 ## Project Structure
 
 ```text
