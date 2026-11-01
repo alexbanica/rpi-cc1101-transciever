@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rpi-cc1101-transciever"
+dynamic = ["version", "dependencies"]
+description = "Somfy RTS transceiver for CC1101 hardware"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+
+[project.scripts]
+cc1101-transceiver = "cc1101_transceiver.controllers.cli:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "cc1101_transceiver._version.__version__"}
+dependencies = {file = ["requirements.txt"]}

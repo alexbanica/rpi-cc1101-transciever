@@ -1,0 +1,1 @@
+"""CLI request DTO package."""
