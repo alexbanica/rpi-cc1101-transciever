@@ -15,6 +15,9 @@ from tests.pulse_fixtures import nominal_somfy_pulses
 class FakeCc1101:
     calls = []
 
+    def __init__(self, *, spi_bus, spi_chip_select):
+        self.calls.append(("init", spi_bus, spi_chip_select))
+
     def __enter__(self):
         return self
 
@@ -105,7 +108,7 @@ class Gdo0CaptureInfrastructureTest(unittest.TestCase):
                 "cc1101_transceiver.infrastructures.cc1101.cc1101_transceiver_adapter.GpioPulseCapture",
                 FakePulseCapture,
             ):
-                frames = Cc1101TransceiverAdapter(0, 0, rx_gpio=25).capture(0.1, 1, 433420000)
+                frames = Cc1101TransceiverAdapter(1, 2, rx_gpio=25).capture(0.1, 1, 433420000)
 
         self.assertEqual(len(frames), 1)
         self.assertEqual(frames[0].raw["capture_method"], "gdo0-gpio-pulse")
@@ -114,6 +117,7 @@ class Gdo0CaptureInfrastructureTest(unittest.TestCase):
         self.assertEqual(frames[0].raw["gpio_numbering"], "bcm")
         self.assertEqual(frames[0].raw["obfuscated_frame_hex"], "a78e8a589b2988")
         self.assertEqual(frames[0].decoded.address, "a1b2c3")
+        self.assertIn(("init", 1, 2), FakeCc1101.calls)
         self.assertIn(("set_base_frequency_hertz", 433420000), FakeCc1101.calls)
         self.assertIn(("_enable_receive_mode", None), FakeCc1101.calls)
 
@@ -134,6 +138,7 @@ class Gdo0CaptureInfrastructureTest(unittest.TestCase):
                 frames = Cc1101TransceiverAdapter(0, 0, rx_gpio=25).capture(0.1, 1, 433420000)
 
         self.assertEqual(frames, [])
+        self.assertIn(("init", 0, 0), FakeCc1101.calls)
 
     def test_gpio_loader_import_error_maps_to_hardware_error(self):
         capture = GpioPulseCapture(25, gpio_loader=lambda: (_ for _ in ()).throw(HardwareAccessError("missing")))
@@ -165,6 +170,7 @@ class Gdo0CaptureInfrastructureTest(unittest.TestCase):
                     Cc1101TransceiverAdapter(0, 0, tx_gpio=26).transmit(frame, 433420000)
 
         self.assertIn(("set_base_frequency_hertz", 433420000), FakeCc1101.calls)
+        self.assertIn(("init", 0, 0), FakeCc1101.calls)
         self.assertIn(("set_symbol_rate_baud", 4800), FakeCc1101.calls)
         self.assertIn(("asynchronous_transmission", None), FakeCc1101.calls)
         self.assertEqual(FakePulseEncoder.calls, [("encode_obfuscated_hex", "a78e8a589b2988")])
@@ -197,9 +203,10 @@ class Gdo0CaptureInfrastructureTest(unittest.TestCase):
                     FakePulseTransmitter,
                     create=True,
                 ):
-                    Cc1101TransceiverAdapter(0, 0, symbol_rate=2400).transmit(frame, 433420000)
+                    Cc1101TransceiverAdapter(1, 2, symbol_rate=2400).transmit(frame, 433420000)
 
         self.assertIn(("set_symbol_rate_baud", 2400), FakeCc1101.calls)
+        self.assertIn(("init", 1, 2), FakeCc1101.calls)
 
     def test_adapter_live_transmit_requires_async_transmission_api_before_gpio_output(self):
         fake_module = types.SimpleNamespace(

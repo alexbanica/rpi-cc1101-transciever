@@ -84,12 +84,25 @@ class SomfyRtsPulseDecodeService:
             half_count = round(duration_us / self.HALF_SYMBOL_US)
             if half_count < 1:
                 raise ValueError("Somfy RTS payload pulse is shorter than a half-symbol")
-            expected = half_count * self.HALF_SYMBOL_US
-            if not _within_tolerance(duration_us, expected, self.HALF_SYMBOL_TOLERANCE):
-                raise ValueError("Somfy RTS payload pulse is outside half-symbol timing tolerance")
-            half_symbols.extend([level] * half_count)
-            if len(half_symbols) > self.PAYLOAD_BITS * 2:
-                raise ValueError("Somfy RTS pulse data contains too many payload half-symbols")
+            needed = self.PAYLOAD_BITS * 2 - len(half_symbols)
+            expected_run_us = min(half_count, needed) * self.HALF_SYMBOL_US
+            if len(half_symbols) + half_count < self.PAYLOAD_BITS * 2:
+                if half_count > 2 or not _within_tolerance(
+                    duration_us, half_count * self.HALF_SYMBOL_US, self.HALF_SYMBOL_TOLERANCE
+                ):
+                    raise ValueError("Somfy RTS payload pulse is outside half-symbol timing tolerance")
+            else:
+                if duration_us < expected_run_us * (1 - self.HALF_SYMBOL_TOLERANCE):
+                    raise ValueError("Somfy RTS final payload pulse is too short")
+                excess_us = duration_us - expected_run_us
+                if excess_us > expected_run_us * self.HALF_SYMBOL_TOLERANCE and not (
+                    level == 0
+                    or (level == 1 and _within_tolerance(excess_us, self.HARDWARE_SYNC_US, self.SYNC_TOLERANCE))
+                ):
+                    raise ValueError("Somfy RTS pulse data has an invalid final pulse tail")
+            half_symbols.extend([level] * min(half_count, needed))
+            if len(half_symbols) == self.PAYLOAD_BITS * 2:
+                break
         return half_symbols
 
 

@@ -121,7 +121,7 @@ def dispatch(args: argparse.Namespace) -> int:
             print(f"capture_file={args.out_file} frames={len(capture.frames)} frequency_hz={capture.frequency_hz}")
             return EXIT_SUCCESS
         if args.receiver_command == "inspect":
-            summary = InspectService().inspect(Path(args.path))
+            summary = InspectService(capture_repository, profile_repository).inspect(Path(args.path))
             print(" ".join(f"{key}={value}" for key, value in summary.items()))
             return EXIT_SUCCESS
         if args.receiver_command == "decode":

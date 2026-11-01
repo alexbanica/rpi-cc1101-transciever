@@ -98,7 +98,10 @@ class Cc1101TransceiverAdapter:
             raise HardwareAccessError("installed cc1101 package does not expose CC1101")
 
         try:
-            with transceiver_class() as transceiver:
+            with transceiver_class(
+                spi_bus=self.spi_bus,
+                spi_chip_select=self.spi_chip_select,
+            ) as transceiver:
                 self._configure_transmit(cc1101, transceiver, frequency_hz)
                 async_session = getattr(transceiver, "asynchronous_transmission", None)
                 if not callable(async_session):
@@ -122,7 +125,10 @@ class Cc1101TransceiverAdapter:
             raise HardwareAccessError("installed cc1101 package does not expose CC1101")
 
         try:
-            with transceiver_class() as transceiver:
+            with transceiver_class(
+                spi_bus=self.spi_bus,
+                spi_chip_select=self.spi_chip_select,
+            ) as transceiver:
                 self._configure_receive(cc1101, transceiver, frequency_hz)
                 yield transceiver
         except HardwareAccessError:
